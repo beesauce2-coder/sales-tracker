@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Team Sales Tracker - Google Sheets Production</title>
+    
+    <!-- Google API Client -->
+    <script src="https://apis.google.com/js/api.js"></script>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            overflow: hidden;
+            touch-action: none;
+        }
+        
+        #map {
+            height: 100vh;
+            width: 100%;
+            z-index: 1;
+        }
+        
+        .auth-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            z-index: 5000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .auth-panel.hidden {
+            display: none;
+        }
+        
+        .auth-logo {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+        
+        .auth-title {
+            color: #5eead4;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 15px;
+        }
+        
+        .auth-text {
+            color: #94a3b8;
+            line-height: 1.6;
+            margin-bottom: 30px;
+            max-width: 400px;
+        }
+        
+        .auth-btn {
+            padding: 18px 40px;
+            background: linear-gradient(135deg, #0ea5e9, #0284c7);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .setup-steps {
+            background: rgba(30, 41, 59, 0.8);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: left;
+            max-width: 400px;
+            margin-top: 20px;
+        }
+        
+        .setup-steps h3 {
+            color: #f59e0b;
+            margin-bottom: 15px;
+            font-size: 0.9rem;
+        }
+        
+        .setup-steps ol {
+            margin: 0;
+            padding-left: 20px;
+            color: #cbd5e1;
+            font-size: 0.85rem;
+            line-height: 1.8;
+        }
+        
+        .sheet-input-container {
+            width: 100%;
+            max-width: 400px;
+            margin-top: 20px;
+        }
+        
+        .sheet-input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #334155;
+            border-radius: 10px;
+            background: #1e293b;
+            color: #f1f5f9;
+            font-size: 1rem;
+            margin-bottom: 10px;
+        }
+        
+        .sync-indicator {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(15, 23, 42, 0.95);
+            padding: 10px 15px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            z-index: 999;
+            border: 1px solid rgba(94, 234, 212, 0.2);
+        }
+        
+        .sync-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ef4444;
+        }
+        
+        .sync-dot.syncing {
+            background: #f59e0b;
+            animation: blink 1s infinite;
+        }
+        
+        .sync-dot.online {
+            background: #22c55e;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+        }
+        
+        .control-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(15, 23, 42, 0.98);
+            backdrop-filter: blur(10px);
+            padding: 15px;
+            border-radius: 20px 20px 0 0;
+            border-top: 1px solid rgba(94, 234, 212, 0.3);
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+            z-index: 1000;
+            max-height: 50vh;
+            overflow-y: auto;
+            transition: transform 0.3s ease;
+        }
+        
+        .panel-handle {
+            width: 40px;
+            height: 4px;
+            background: #475569;
+            border-radius: 2px;
+            margin: 0 auto 15px;
+            cursor: pointer;
+        }
+        
+        .control-panel h2 {
+            color: #5eead4;
+            margin-bottom: 12px;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        
+        .status-active {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        
+        .status-inactive {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .stat-box {
+            background: rgba(30, 41, 59, 0.8);
+            padding: 10px;
+            border-radius: 10px;
+            text-align: center;
+            border: 1px solid rgba(148, 163, 184, 0.1);
+        }
+        
+        .stat-number {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #5eead4;
+        }
+        
+        .stat-label {
+            font-size: 0.65rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #0ea5e9, #0284c7);
+            color: white;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+        }
+        
+        .btn:disabled {
+            background: #475569;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+        
+        .customer-list {
+            margin-top: 15px;
+        }
+        
+        .customer-list h3 {
+            color: #94a3b8;
+            font-size: 0.8rem;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+        
+        .customer-item {
+            background: rgba(30, 41, 59, 0.6);
+            padding: 12px;
+            border-radius: 12px;
+            margin-bottom: 8px;
+            border-left: 3px solid #ef4444;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        
+        .customer-item.claimed {
+            border-left-color: #8b5cf6;
+            background: rgba(139, 92, 246, 0.1);
+        }
+        
+        .customer-item.visited {
+            display: none;
+        }
+        
+        .customer-item.nearby {
+            border-left-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.15);
+        }
+        
+        .claim-badge {
+            position: absolute;
+            top: -8px;
+            right: 10px;
+            background: #8b5cf6;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            display: none;
+        }
+        
+        .customer-item.claimed .claim-badge {
+            display: block;
+        }
+        
+        .customer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+        }
+        
+        .customer-info h4 {
+            color: #f1f5f9;
+            font-size: 0.95rem;
+            margin-bottom: 4px;
+        }
+        
+        .customer-meta {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            line-height: 1.4;
+        }
+        
+        .distance-badge {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        
+        .distance-badge.nearby {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+        }
+        
+        .distance-badge.reached {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+        
+        .action-btns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        
+        .btn-small {
+            padding: 10px;
+            font-size: 0.85rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        
+        .btn-claim {
+            background: #8b5cf6;
+            color: white;
+        }
+        
+        .btn-claim:disabled {
+            background: #475569;
+        }
+        
+        .btn-verify {
+            background: #10b981;
+            color: white;
+        }
+        
+        .btn-verify:disabled {
+            background: #475569;
+        }
+        
+        .fab-container {
+            position: fixed;
+            top: 60px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 999;
+        }
+        
+        .fab {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(94, 234, 212, 0.3);
+            color: #5eead4;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        
+        .proximity-indicator {
+            position: fixed;
+            top: 80px;
+            left: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: #0f172a;
+            padding: 16px;
+            border-radius: 16px;
+            font-weight: 700;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            z-index: 1000;
+            text-align: center;
+            cursor: pointer;
+        }
+        
+        .proximity-indicator.show {
+            display: flex;
+        }
+        
+        .verification-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 3000;
+            padding: 20px;
+        }
+        
+        .verification-modal.show {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            padding: 30px 25px;
+            border-radius: 24px;
+            border: 2px solid #f59e0b;
+            width: 100%;
+            max-width: 350px;
+            text-align: center;
+        }
+        
+        .modal-icon {
+            font-size: 4rem;
+            margin-bottom: 15px;
+        }
+        
+        .modal-title {
+            color: #f59e0b;
+            font-size: 1.4rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+        
+        .modal-text {
+            color: #94a3b8;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+        
+        .modal-customer-name {
+            color: #f1f5f9;
+            font-weight: 700;
+            font-size: 1.2rem;
+            margin-bottom: 25px;
+            padding: 15px;
+            background: rgba(245, 158, 11, 0.1);
+            border-radius: 12px;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+        
+        .modal-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .modal-btn {
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        
+        .modal-btn-confirm {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+        }
+        
+        .modal-btn-cancel {
+            background: rgba(71, 85, 105, 0.5);
+            color: #cbd5e1;
+        }
+        
+        .notification {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            background: rgba(15, 23, 42, 0.98);
+            color: #5eead4;
+            padding: 16px 20px;
+            border-radius: 16px;
+            border: 1px solid rgba(94, 234, 212, 0.3);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            z-index: 2000;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transform: translateY(-150px);
+            transition: transform 0.4s ease;
+        }
+        
+        .notification.show {
+            transform: translateY(0);
+        }
+        
+        .notification-icon {
+            width: 44px;
+            height: 44px;
+            background: rgba(94, 234, 212, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.4rem;
+            flex-shrink: 0;
+        }
+        
+        .agent-marker {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            border: 3px solid white;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        
+        .error-log {
+            position: fixed;
+            bottom: 100px;
+            left: 20px;
+            right: 20px;
+            background: rgba(239, 68, 68, 0.95);
+            color: white;
+            padding: 15px;
+            border-radius: 12px;
+            display: none;
+            z-index: 4000;
+            font-size: 0.85rem;
+        }
+        
+        .error-log.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <!-- Authentication Panel -->
+    <div class="auth-panel" id="authPanel">
+        <div class="auth-logo">📊</div>
+        <div class="auth-title">Google Sheets Sync</div>
+        <div class="auth-text">
+            Connect to your Google Sheet to enable real-time team synchronization. All visits automatically upload to the sheet.
+        </div>
+        
+        <button class="auth-btn" onclick="authenticateWithGoogle()">
+            <span>🔐</span> Sign in with Google
+        </button>
+        
+        <div class="sheet-input-container" id="sheetContainer" style="display: none;">
+            <input type="text" class="sheet-input" id="sheetUrl" placeholder="Paste Google Sheet URL here">
+            <button class="auth-btn" onclick="connectSheet()" style="width: 100%;">
+                <span>🔗</span> Connect to Sheet
+            </button>
+        </div>
+        
+        <div class="setup-steps">
+            <h3>📋 Setup Instructions</h3>
+            <ol>
+                <li>Click "Sign in with Google" above</li>
+                <li>Create a new Google Sheet (or use existing)</li>
+                <li>Share the sheet with your team</li>
+                <li>Paste the Sheet URL and connect</li>
+                <li>All agents use the same sheet URL</li>
+            </ol>
+        </div>
+    </div>
+    
+    <!-- Error Log -->
+    <div class="error-log" id="errorLog"></div>
+    
+    <!-- Sync Indicator -->
+    <div class="sync-indicator">
+        <div class="sync-dot" id="syncDot"></div>
+        <div>
+            <span id="syncText">Not connected</span>
+            <div style="font-size: 0.75rem; color: #64748b;" id="lastSync">Never synced</div>
+        </div>
+    </div>
+    
+    <!-- Map -->
+    <div id="map"></div>
+    
+    <!-- Floating Buttons -->
+    <div class="fab-container">
+        <div class="fab" onclick="recenterMap()">📍</div>
+        <div class="fab" onclick="togglePanel()">📋</div>
+        <div class="fab" onclick="forceSync()">🔄</div>
+    </div>
+    
+    <!-- Proximity Indicator -->
+    <div class="proximity-indicator" id="proximityIndicator" onclick="openNearestVerify()">
+        <span>🎯</span>
+        <span id="proximityText">Customer Nearby! Tap to Verify</span>
+    </div>
+    
+    <!-- Main Control Panel -->
+    <div class="control-panel" id="controlPanel">
+        <div class="panel-handle" onclick="togglePanel()"></div>
+        
+        <h2>
+            <span>🛡️</span>
+            Team Sales Tracker
+        </h2>
+        
+        <div id="trackingStatus" class="status-badge status-inactive">
+            <span>●</span> GPS Off
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-box">
+                <div class="stat-number" id="remainingCount">20</div>
+                <div class="stat-label">Available</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number" id="claimedCount">0</div>
+                <div class="stat-label">Claimed</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number" id="visitedCount">0</div>
+                <div class="stat-label">Done</div>
+            </div>
+        </div>
+        
+        <button class="btn btn-primary" id="gpsBtn" onclick="startTracking()">
+            <span>📡</span> Start GPS Tracking
+        </button>
+        
+        <div class="customer-list">
+            <h3>Customers (Auto-sync to Sheet)</h3>
+            <div id="customerItems"></div>
+        </div>
+    </div>
+    
+    <!-- Verification Modal -->
+    <div class="verification-modal" id="verifyModal">
+        <div class="modal-content">
+            <div class="modal-icon">✋</div>
+            <div class="modal-title">Verify Visit</div>
+            <div class="modal-text">Have you physically met this customer?</div>
+            <div class="modal-customer-name" id="modalCustomerName">Customer Name</div>
+            <div class="modal-actions">
+                <button class="modal-btn modal-btn-confirm" onclick="confirmVisit()">
+                    ✓ YES, VERIFY & UPLOAD
+                </button>
+                <button class="modal-btn modal-btn-cancel" onclick="closeModal()">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Notification -->
+    <div class="notification" id="notification">
+        <div class="notification-icon">✓</div>
+        <div>
+            <div style="font-weight: 700; font-size: 1.1rem;" id="notifTitle">Verified!</div>
+            <div style="font-size: 0.9rem; opacity: 0.8;" id="notifMessage">Uploading to Google Sheets...</div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // CONFIGURATION - CHANGE THESE
+        // ==========================================
+        
+        // Your Google API Client ID
+        // Get from: console.cloud.google.com → APIs & Services → Credentials
+        const CLIENT_ID = 'YOUR_CLIENT_ID.apps.googleusercontent.com';
+        const API_KEY = 'YOUR_API_KEY';
+        const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+        
+        // ==========================================
+        // GLOBAL VARIABLES
+        // ==========================================
+        
+        let gapiInited = false;
+        let gisInited = false;
+        let tokenClient;
+        let accessToken = null;
+        let SHEET_ID = '';
+        let SYNC_INTERVAL = null;
+        
+        // Agent identification
+        const agentId = 'agent_' + Math.random().toString(36).substr(2, 9);
+        const agentName = 'Agent ' + Math.floor(Math.random() * 100);
+        
+        // Customer data
+        const inactiveCustomers = [
+            {id: "749784188", name: "Alimamy .K. Sesay", lat: 8.4844, lng: -13.2344, days: 54, volume: 3.1, address: "15 Main Street"},
+            {id: "749601375", name: "Adama Kanu", lat: 8.4850, lng: -13.2350, days: 54, volume: 6.3, address: "22 Beach Road"},
+            {id: "718388250", name: "Solomon .C. Sesay", lat: 8.4860, lng: -13.2360, days: 54, volume: 3.1, address: "8 Hilltop Ave"},
+            {id: "693876670", name: "Hawa massaquoi", lat: 8.4870, lng: -13.2370, days: 54, volume: 6.3, address: "45 Market Street"},
+            {id: "709031521", name: "Mary P Mansaray", lat: 8.4880, lng: -13.2380, days: 53, volume: 4, address: "12 River Road"},
+            {id: "816862768", name: "Mamadu Yoroh Sow", lat: 8.4890, lng: -13.2390, days: 53, volume: 20, address: "33 Unity Drive"},
+            {id: "1044141593", name: "Ibrahim Telle Jalloh", lat: 8.4900, lng: -13.2400, days: 53, volume: 2, address: "7 Peace Lane"},
+            {id: "869822737", name: "Amadu Wurie", lat: 8.4910, lng: -13.2410, days: 52, volume: 1.9, address: "19 Liberty Street"},
+            {id: "843429677", name: "Mohamed .L. Suma", lat: 8.4920, lng: -13.2420, days: 52, volume: 6.3, address: "54 Freedom Ave"},
+            {id: "1005423139", name: "Marie Fillie", lat: 8.4930, lng: -13.2430, days: 51, volume: 1.1, address: "3 Independence Road"},
+            {id: "854617933", name: "Fatmata Kabbay", lat: 8.4940, lng: -13.2440, days: 50, volume: 2, address: "28 Justice Drive"},
+            {id: "522269620", name: "Emeric S.F. Bangura", lat: 8.4950, lng: -13.2450, days: 50, volume: 4, address: "41 Progress Lane"},
+            {id: "782250251", name: "Makalay Koroma 2", lat: 8.4960, lng: -13.2460, days: 50, volume: 5, address: "16 Success Street"},
+            {id: "86388067", name: "Hassanatu Khanu", lat: 8.4970, lng: -13.2470, days: 50, volume: 7.8, address: "9 Harmony Ave"},
+            {id: "791378795", name: "Morlai Mansaray 2", lat: 8.4980, lng: -13.2480, days: 50, volume: 2.5, address: "25 Unity Street"},
+            {id: "693875772", name: "Makalay Koroma", lat: 8.4990, lng: -13.2490, days: 50, volume: 10, address: "38 Prosperity Road"},
+            {id: "1011653658", name: "Christina Nyamba", lat: 8.5000, lng: -13.2500, days: 50, volume: 3, address: "6 Victory Lane"},
+            {id: "996459332", name: "Abu Mansaray 4", lat: 8.5010, lng: -13.2510, days: 50, volume: 2.2, address: "51 Achievement Drive"},
+            {id: "698023549", name: "Abdulai Kabia", lat: 8.5020, lng: -13.2520, days: 49, volume: 1, address: "14 Excellence Ave"},
+            {id: "1011649406", name: "Abdul Karim Sawaneh 2", lat: 8.5030, lng: -13.2530, days: 49, volume: 21.9, address: "47 Wisdom Street"}
+        ];
+
+        let map;
+        let agentMarker;
+        let customerMarkers = {};
+        let currentVerifyId = null;
+        let proximityThreshold = 100;
+        let isTracking = false;
+        let watchId = null;
+
+        // ==========================================
+        // INITIALIZATION
+        // ==========================================
+        
+        function init() {
+            initMap();
+            loadGapi();
+        }
+
+        function initMap() {
+            map = L.map('map', {
+                zoomControl: false,
+                tap: true
+            }).setView([8.49, -13.24], 15);
+            
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; CARTO',
+                subdomains: 'abcd',
+                maxZoom: 20
+            }).addTo(map);
+            
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+            inactiveCustomers.forEach(customer => {
+                addCustomerMarker(customer);
+            });
+
+            updateCustomerList();
+        }
+
+        function addCustomerMarker(customer) {
+            const marker = L.circleMarker([customer.lat, customer.lng], {
+                radius: 16,
+                fillColor: '#ef4444',
+                color: '#fff',
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.9
+            }).addTo(map);
+
+            marker.bindPopup(`
+                <div style="font-family: system-ui; padding: 12px;">
+                    <h3 style="margin: 0 0 8px 0; color: #ef4444; font-size: 1.1rem;">${customer.name}</h3>
+                    <p style="margin: 4px 0; color: #475569; font-size: 0.9rem;">
+                        📍 ${customer.address}<br>
+                        ⏰ ${customer.days} days inactive
+                    </p>
+                </div>
+            `);
+
+            customerMarkers[customer.id] = {
+                marker: marker,
+                data: customer,
+                status: 'available',
+                claimedBy: null,
+                claimedByName: null,
+                nearby: false
+            };
+        }
+
+        // ==========================================
+        // GOOGLE API AUTHENTICATION
+        // ==========================================
+        
+        function loadGapi() {
+            gapi.load('client', async () => {
+                await gapi.client.init({
+                    apiKey: API_KEY,
+                    discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
+                });
+                gapiInited = true;
+                checkAuthStatus();
+            });
+        }
+
+        function checkAuthStatus() {
+            // Check if we have a stored token
+            const stored = localStorage.getItem('gapi_token');
+            if (stored) {
+                accessToken = JSON.parse(stored);
+                gapi.client.setToken(accessToken);
+                showSheetInput();
+            }
+        }
+
+        function authenticateWithGoogle() {
+            if (!tokenClient) {
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: CLIENT_ID,
+                    scope: SCOPES,
+                    callback: (tokenResponse) => {
+                        if (tokenResponse.error) {
+                            showError('Auth error: ' + tokenResponse.error);
+                            return;
+                        }
+                        accessToken = tokenResponse;
+                        localStorage.setItem('gapi_token', JSON.stringify(accessToken));
+                        gapi.client.setToken(accessToken);
+                        showSheetInput();
+                    },
+                });
+            }
+            tokenClient.requestAccessToken({prompt: 'consent'});
+        }
+
+        function showSheetInput() {
+            document.querySelector('.auth-text').textContent = '✓ Signed in! Now paste your Google Sheet URL below:';
+            document.getElementById('sheetContainer').style.display = 'block';
+            document.querySelector('.setup-steps').style.display = 'none';
+        }
+
+        function getSheetIdFromUrl(url) {
+            const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+            return match ? match[1] : null;
+        }
+
+        async function connectSheet() {
+            const url = document.getElementById('sheetUrl').value.trim();
+            const sheetId = getSheetIdFromUrl(url);
+            
+            if (!sheetId) {
+                showError('Invalid Google Sheet URL');
+                return;
+            }
+            
+            SHEET_ID = sheetId;
+            localStorage.setItem('sheet_id', sheetId);
+            
+            // Initialize sheet with headers if empty
+            await initializeSheet();
+            
+            // Hide auth panel, show app
+            document.getElementById('authPanel').classList.add('hidden');
+            
+            // Start syncing
+            startSync();
+            updateSyncStatus('online');
+            showNotification('Connected!', 'Real-time sync enabled');
+        }
+
+        async function initializeSheet() {
+            try {
+                // Check if sheet has data
+                const response = await gapi.client.sheets.spreadsheets.values.get({
+                    spreadsheetId: SHEET_ID,
+                    range: 'A1:G1',
+                });
+                
+                // If empty, add headers
+                if (!response.result.values || response.result.values.length === 0) {
+                    await gapi.client.sheets.spreadsheets.values.update({
+                        spreadsheetId: SHEET_ID,
+                        range: 'A1',
+                        valueInputOption: 'RAW',
+                        resource: {
+                            values: [['CustomerID', 'Status', 'ClaimedBy', 'ClaimedByName', 'ClaimedTime', 'VisitedBy', 'VisitedTime']]
+                        }
+                    });
+                    
+                    // Add customer rows
+                    const rows = inactiveCustomers.map(c => [c.id, 'available', '', '', '', '', '']);
+                    await gapi.client.sheets.spreadsheets.values.append({
+                        spreadsheetId: SHEET_ID,
+                        range: 'A2',
+                        valueInputOption: 'RAW',
+                        resource: { values: rows }
+                    });
+                }
+            } catch (err) {
+                showError('Sheet init error: ' + err.message);
+            }
+        }
+
+        // ==========================================
+        // SYNC OPERATIONS
+        // ==========================================
+        
+        async function startSync() {
+            await syncFromSheet();
+            SYNC_INTERVAL = setInterval(syncFromSheet, 15000); // Sync every 15 seconds
+        }
+
+        async function syncFromSheet() {
+            if (!SHEET_ID || !accessToken) return;
+            
+            updateSyncStatus('syncing');
+            
+            try {
+                const response = await gapi.client.sheets.spreadsheets.values.get({
+                    spreadsheetId: SHEET_ID,
+                    range: 'A2:G',
+                });
+                
+                const rows = response.result.values || [];
+                
+                rows.forEach(row => {
+                    const [id, status, claimedBy, claimedByName, claimedTime, visitedBy, visitedTime] = row;
+                    const customer = customerMarkers[id];
+                    
+                    if (!customer) return;
+                    
+                    if (status === 'visited' && customer.status !== 'visited') {
+                        customer.status = 'visited';
+                        removeCustomerFromMap(id);
+                    } else if (status === 'claimed' && customer.status !== 'claimed') {
+                        customer.status = 'claimed';
+                        customer.claimedBy = claimedBy;
+                        customer.claimedByName = claimedByName;
+                        updateCustomerVisuals(id);
+                    } else if (status === 'available' && customer.status !== 'available') {
+                        customer.status = 'available';
+                        customer.claimedBy = null;
+                        updateCustomerVisuals(id);
+                    }
+                });
+                
+                updateCustomerList();
+                updateStats();
+                updateSyncStatus('online');
+                
+                const now = new Date();
+                document.getElementById('lastSync').textContent = 'Last sync: ' + now.toLocaleTimeString();
+                
+            } catch (err) {
+                console.error('Sync error:', err);
+                updateSyncStatus('error');
+                showError('Sync failed: ' + err.message);
+            }
+        }
+
+        async function updateSheetRow(customerId, updates) {
+            if (!SHEET_ID || !accessToken) return;
+            
+            try {
+                // Find row number
+                const response = await gapi.client.sheets.spreadsheets.values.get({
+                    spreadsheetId: SHEET_ID,
+                    range: 'A2:A',
+                });
+                
+                const rows = response.result.values || [];
+                const rowIndex = rows.findIndex(row => row[0] === customerId);
+                
+                if (rowIndex === -1) return;
+                
+                const actualRow = rowIndex + 2; // +2 because data starts at row 2
+                
+                // Build update
+                const rowData = [
+                    customerId,
+                    updates.status || 'available',
+                    updates.claimedBy || '',
+                    updates.claimedByName || '',
+                    updates.claimedTime || '',
+                    updates.visitedBy || '',
+                    updates.visitedTime || ''
+                ];
+                
+                await gapi.client.sheets.spreadsheets.values.update({
+                    spreadsheetId: SHEET_ID,
+                    range: `A${actualRow}:G${actualRow}`,
+                    valueInputOption: 'RAW',
+                    resource: { values: [rowData] }
+                });
+                
+                return true;
+            } catch (err) {
+                showError('Update failed: ' + err.message);
+                return false;
+            }
+        }
+
+        // ==========================================
+        // ACTIONS
+        // ==========================================
+        
+        async function claimCustomer(id) {
+            const customer = customerMarkers[id];
+            if (!customer || customer.status !== 'available') return;
+            
+            const now = new Date().toISOString();
+            
+            customer.status = 'claimed';
+            customer.claimedBy = agentId;
+            customer.claimedByName = agentName;
+            
+            const success = await updateSheetRow(id, {
+                status: 'claimed',
+                claimedBy: agentId,
+                claimedByName: agentName,
+                claimedTime: now
+            });
+            
+            if (success) {
+                updateCustomerVisuals(id);
+                updateCustomerList();
+                showNotification('Customer claimed', 'Locked for your visit');
+            }
+        }
+
+        async function confirmVisit() {
+            if (!currentVerifyId) return;
+            
+            const id = currentVerifyId;
+            const customer = customerMarkers[id];
+            const now = new Date().toISOString();
+            
+            customer.status = 'visited';
+            
+            const success = await updateSheetRow(id, {
+                status: 'visited',
+                visitedBy: agentId,
+                visitedTime: now
+            });
+            
+            if (success) {
+                removeCustomerFromMap(id);
+                closeModal();
+                showNotification(customer.data.name + ' verified!', 'Uploaded to Google Sheets');
+                
+                confetti({
+                    particleCount: 100,
+                    spread: 70,
+                    origin: { y: 0.6 },
+                    colors: ['#10b981', '#0ea5e9', '#f59e0b']
+                });
+                
+                updateStats();
+                updateCustomerList();
+            }
+        }
+
+        function removeCustomerFromMap(id) {
+            const customer = customerMarkers[id];
+            if (!customer) return;
+            
+            const marker = customer.marker;
+            let opacity = 1;
+            const fadeInterval = setInterval(() => {
+                opacity -= 0.15;
+                marker.setStyle({ fillOpacity: opacity, opacity: opacity });
+                if (opacity <= 0) {
+                    clearInterval(fadeInterval);
+                    map.removeLayer(marker);
+                }
+            }, 50);
+        }
+
+        function updateCustomerVisuals(id) {
+            const customer = customerMarkers[id];
+            if (!customer) return;
+            
+            const marker = customer.marker;
+            
+            if (customer.status === 'claimed') {
+                marker.setStyle({ fillColor: '#8b5cf6' });
+            } else if (customer.status === 'available') {
+                marker.setStyle({ fillColor: '#ef4444' });
+            }
+        }
+
+        // ==========================================
+        // GPS & PROXIMITY
+        // ==========================================
+        
+        function startTracking() {
+            if (!navigator.geolocation) {
+                alert('GPS not supported');
+                return;
+            }
+            
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    onGPSSuccess(position);
+                    watchId = navigator.geolocation.watchPosition(
+                        (pos) => {
+                            const { latitude, longitude } = pos.coords;
+                            updateAgentPosition(latitude, longitude);
+                            checkProximity(latitude, longitude);
+                        },
+                        (err) => console.error('Watch error:', err),
+                        { enableHighAccuracy: true, timeout: 10000 }
+                    );
+                },
+                (error) => alert('GPS Error: ' + error.message),
+                { enableHighAccuracy: true, timeout: 15000 }
+            );
+        }
+
+        function onGPSSuccess(position) {
+            const { latitude, longitude } = position.coords;
+            updateAgentPosition(latitude, longitude);
+            checkProximity(latitude, longitude);
+            
+            document.getElementById('trackingStatus').className = 'status-badge status-active';
+            document.getElementById('trackingStatus').innerHTML = '<span>●</span> GPS Active';
+            document.getElementById('gpsBtn').disabled = true;
+            document.getElementById('gpsBtn').innerHTML = '<span>📡</span> GPS Running';
+        }
+
+        function updateAgentPosition(lat, lng) {
+            if (!agentMarker) {
+                const icon = L.divIcon({
+                    className: 'agent-marker',
+                    html: '<div style="background: #0ea5e9; width: 100%; height: 100%; border-radius: 50%; display: flex; align-items: center; justify-content: center;">📍</div>',
+                    iconSize: [40, 40]
+                });
+                agentMarker = L.marker([lat, lng], { icon: icon }).addTo(map);
+                map.flyTo([lat, lng], 17);
+            } else {
+                agentMarker.setLatLng([lat, lng]);
+            }
+        }
+
+        function checkProximity(agentLat, agentLng) {
+            Object.entries(customerMarkers).forEach(([id, customer]) => {
+                if (customer.status !== 'available' && customer.status !== 'claimed') return;
+                
+                const distance = calculateDistance(
+                    agentLat, agentLng,
+                    customer.data.lat, customer.data.lng
+                );
+                
+                const isNearby = distance <= proximityThreshold;
+                
+                if (isNearby && !customer.nearby) {
+                    customer.nearby = true;
+                    document.getElementById('proximityIndicator').classList.add('show');
+                    document.getElementById('proximityText').textContent = `Near ${customer.data.name}!`;
+                    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                } else if (!isNearby && customer.nearby) {
+                    customer.nearby = false;
+                    document.getElementById('proximityIndicator').classList.remove('show');
+                }
+                
+                updateDistanceDisplay(id, distance, isNearby);
+            });
+            
+            updateCustomerList();
+        }
+
+        function calculateDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371e3;
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const Δφ = (lat2 - lat1) * Math.PI / 180;
+            const Δλ = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                      Math.cos(φ1) * Math.cos(φ2) *
+                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function updateDistanceDisplay(id, distance, nearby) {
+            const badge = document.getElementById(`distance-${id}`);
+            if (!badge) return;
+            
+            const customer = customerMarkers[id];
+            
+            if (nearby) {
+                badge.className = 'distance-badge reached';
+                badge.innerHTML = customer.status === 'claimed' && customer.claimedBy !== agentId ? '🔒' : '✓ NEAR';
+            } else {
+                badge.className = 'distance-badge';
+                badge.textContent = distance < 1000 ? `${Math.round(distance)}m` : `${(distance/1000).toFixed(1)}km`;
+            }
+        }
+
+        // ==========================================
+        // UI UPDATES
+        // ==========================================
+        
+        function updateCustomerList() {
+            const container = document.getElementById('customerItems');
+            
+            const sorted = Object.entries(customerMarkers)
+                .filter(([id, c]) => c.status !== 'visited')
+                .sort((a, b) => {
+                    if (a[1].nearby && !b[1].nearby) return -1;
+                    if (!a[1].nearby && b[1].nearby) return 1;
+                    return a[1].data.days - b[1].data.days;
+                });
+            
+            if (sorted.length === 0) {
+                container.innerHTML = '<div style="text-align: center; padding: 30px; color: #94a3b8;"><div style="font-size: 3rem;">✅</div>All done!</div>';
+                return;
+            }
+            
+            container.innerHTML = sorted.map(([id, c]) => {
+                const isClaimedByMe = c.claimedBy === agentId;
+                const isClaimedByOther = c.status === 'claimed' && !isClaimedByMe;
+                
+                return `
+                <div class="customer-item ${c.nearby ? 'nearby' : ''} ${c.status}" id="customer-${id}">
+                    ${isClaimedByOther ? '<div class="claim-badge">🔒 CLAIMED</div>' : ''}
+                    <div class="customer-header">
+                        <div class="customer-info">
+                            <h4>${c.data.name}</h4>
+                            <div class="customer-meta">
+                                📍 ${c.data.address}<br>
+                                ⏰ ${c.data.days} days
+                                ${isClaimedByOther ? '<br><span style="color: #8b5cf6;">By: ' + c.claimedByName + '</span>' : ''}
+                                ${isClaimedByMe ? '<br><span style="color: #10b981;">✓ You claimed this</span>' : ''}
+                            </div>
+                        </div>
+                        <div class="distance-badge ${c.nearby ? 'reached' : ''}" id="distance-${id}">
+                            ${c.nearby ? (isClaimedByOther ? '🔒' : '✓ NEAR') : '-- m'}
+                        </div>
+                    </div>
+                    <div class="action-btns">
+                        ${c.status === 'available' ? `
+                            <button class="btn-small btn-claim" onclick="claimCustomer('${id}')" ${!c.nearby ? 'disabled' : ''}>
+                                🔒 CLAIM
+                            </button>
+                            <button class="btn-small btn-verify" onclick="openVerifyModal('${id}')" ${!c.nearby ? 'disabled' : ''}>
+                                ✓ VERIFY
+                            </button>
+                        ` : isClaimedByMe ? `
+                            <button class="btn-small btn-verify" onclick="openVerifyModal('${id}')" style="grid-column: 1 / -1;">
+                                ✓ VERIFY VISIT
+                            </button>
+                        ` : `
+                            <button class="btn-small" disabled style="grid-column: 1 / -1; background: #475569; color: #94a3b8;">
+                                ⏳ WAITING
+                            </button>
+                        `}
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        function updateStats() {
+            const visited = Object.values(customerMarkers).filter(c => c.status === 'visited').length;
+            const claimed = Object.values(customerMarkers).filter(c => c.status === 'claimed').length;
+            const available = inactiveCustomers.length - visited - claimed;
+            
+            document.getElementById('remainingCount').textContent = available;
+            document.getElementById('claimedCount').textContent = claimed;
+            document.getElementById('visitedCount').textContent = visited;
+        }
+
+        function openVerifyModal(id) {
+            const customer = customerMarkers[id];
+            if (!customer || !customer.nearby) {
+                alert('Get within 100 meters!');
+                return;
+            }
+            if (customer.status === 'claimed' && customer.claimedBy !== agentId) {
+                alert('Another agent claimed this!');
+                return;
+            }
+            
+            currentVerifyId = id;
+            document.getElementById('modalCustomerName').textContent = customer.data.name;
+            document.getElementById('verifyModal').classList.add('show');
+        }
+
+        function closeModal() {
+            document.getElementById('verifyModal').classList.remove('show');
+            currentVerifyId = null;
+        }
+
+        function showNotification(title, message) {
+            const notif = document.getElementById('notification');
+            document.getElementById('notifTitle').textContent = title;
+            document.getElementById('notifMessage').textContent = message;
+            notif.classList.add('show');
+            setTimeout(() => notif.classList.remove('show'), 3000);
+        }
+
+        function updateSyncStatus(status) {
+            const dot = document.getElementById('syncDot');
+            const text = document.getElementById('syncText');
+            
+            dot.className = 'sync-dot';
+            
+            if (status === 'online') {
+                dot.classList.add('online');
+                text.textContent = 'Live Sync';
+            } else if (status === 'syncing') {
+                dot.classList.add('syncing');
+                text.textContent = 'Syncing...';
+            } else if (status === 'error') {
+                text.textContent = 'Sync Error';
+            }
+        }
+
+        function showError(msg) {
+            const log = document.getElementById('errorLog');
+            log.textContent = msg;
+            log.classList.add('show');
+            setTimeout(() => log.classList.remove('show'), 5000);
+        }
+
+        function togglePanel() {
+            document.getElementById('controlPanel').classList.toggle('collapsed');
+        }
+
+        function recenterMap() {
+            if (agentMarker) map.flyTo(agentMarker.getLatLng(), 17);
+        }
+
+        function openNearestVerify() {
+            const nearby = Object.entries(customerMarkers).find(([id, c]) => 
+                c.nearby && (c.status === 'available' || c.claimedBy === agentId)
+            );
+            if (nearby) openVerifyModal(nearby[0]);
+        }
+
+        async function forceSync() {
+            updateSyncStatus('syncing');
+            await syncFromSheet();
+            showNotification('Synced!', 'Latest data from team');
+        }
+
+        // Load GIS (Google Identity Services)
+        window.onload = function() {
+            // Load the GIS script dynamically
+            const script = document.createElement('script');
+            script.src = 'https://accounts.google.com/gsi/client';
+            script.async = true;
+            script.defer = true;
+            script.onload = () => {
+                gisInited = true;
+                init();
+            };
+            document.head.appendChild(script);
+        };
+    </script>
+</body>
+</html>
