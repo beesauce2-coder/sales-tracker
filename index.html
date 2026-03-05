@@ -557,11 +557,14 @@
         // GOOGLE SHEETS DATA LOADING
         // ==========================================
         
+        // ==========================================
+// GOOGLE SHEETS DATA LOADING - ADJUSTED FOR YOUR EXCEL STRUCTURE
+// ==========================================
+
         async function loadCustomers() {
             updateSyncStatus('syncing');
             
             try {
-                // Construct the API URL
                 const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${RANGE}?key=${API_KEY}`;
                 
                 const response = await fetch(url);
@@ -574,43 +577,68 @@
                 const data = await response.json();
                 const rows = data.values || [];
                 
+                console.log(`Loaded ${rows.length} rows from sheet`);
+                
                 // Process and filter customers
                 inactiveCustomers = [];
                 let skippedCount = 0;
+                let invalidCoordsCount = 0;
                 
                 rows.forEach((row, index) => {
-                    // Skip if row doesn't have enough columns
-                    if (row.length < 7) {
-                        console.warn(`Skipping row ${index + 2}: insufficient data`);
+                    // Skip if row doesn't have enough columns (need at least F for DaysInactive)
+                    if (row.length < 6) {
+                        console.warn(`Skipping row ${index + 2}: insufficient data (only ${row.length} columns)`);
+                        skippedCount++;
                         return;
                     }
                     
+                    // Extract data according to your Excel structure
                     const customer = {
-                        id: row[0],
-                        name: row[1] || 'Unknown',
-                        lat: parseFloat(row[2]),
-                        lng: parseFloat(row[3]),
-                        address: row[4] || 'No address',
-                        daysInactive: parseInt(row[5]) || 0,
-                        volume: parseFloat(row[6]) || 0
+                        id: row[0] || `row_${index + 2}`,           // A: Customer ID
+                        name: row[1] || `Customer ${row[0] || index + 2}`, // B: Name (fallback to ID or row number)
+                        lat: parseFloat(row[2]),                     // C: Latitude
+                        lng: parseFloat(row[3]),                     // D: Longitude
+                        address: row[4] || 'No address provided',    // E: Address (mostly empty in your data)
+                        daysInactive: parseInt(row[5]) || 0,         // F: DaysInactive
+                        volume: parseFloat(row[6]) || 0              // G: Volume (may be undefined if row.length < 7)
                     };
                     
-                    // Filter: Only customers inactive for MORE than 30 days
-                    if (customer.daysInactive > 30 && !isNaN(customer.lat) && !isNaN(customer.lng)) {
-                        inactiveCustomers.push(customer);
-                        console.log("Inactive:", customer.name, `(${customer.daysInactive} days)`);
-                    } else {
+                    // Validate coordinates - skip if missing or invalid
+                    if (isNaN(customer.lat) || isNaN(customer.lng) || 
+                        customer.lat === 0 || customer.lng === 0 ||
+                        !customer.lat || !customer.lng) {
+                        console.warn(`Skipping ${customer.name}: invalid coordinates (lat: ${row[2]}, lng: ${row[3]})`);
+                        invalidCoordsCount++;
                         skippedCount++;
-                        if (customer.daysInactive <= 30) {
-                            console.log(`Skipped (not inactive enough): ${customer.name} (${customer.daysInactive} days)`);
-                        }
+                        return;
+                    }
+                    
+                    // Filter: Only customers inactive for MORE than 30 days
+                    if (customer.daysInactive > 30) {
+                        inactiveCustomers.push(customer);
+                        console.log("Inactive:", customer.name, `(${customer.daysInactive} days)`, `ID: ${customer.id}`);
+                    } else {
+                        console.log(`Skipped (not inactive enough): ${customer.name} (${customer.daysInactive} days)`);
+                        skippedCount++;
                     }
                 });
+                
+                console.log(`Processed: ${inactiveCustomers.length} valid, skipped: ${skippedCount} (including ${invalidCoordsCount} with bad coordinates)`);
+                
+                if (inactiveCustomers.length === 0) {
+                    throw new Error('No valid inactive customers found. Check sheet data and filter criteria.');
+                }
                 
                 // Add markers to map
                 inactiveCustomers.forEach(customer => {
                     addCustomerMarker(customer);
                 });
+                
+                // Center map on customers if no GPS yet
+                if (inactiveCustomers.length > 0) {
+                    const group = new L.featureGroup(Object.values(customerMarkers).map(c => c.marker));
+                    map.fitBounds(group.getBounds().pad(0.1));
+                }
                 
                 // Update UI
                 updateCustomerList();
@@ -623,7 +651,7 @@
                 // Hide loading panel
                 document.getElementById('loadingPanel').classList.add('hidden');
                 
-                showNotification('Data Loaded', `${inactiveCustomers.length} inactive customers found`);
+                showNotification('Data Loaded', `${inactiveCustomers.length} inactive customers found (${skippedCount} skipped)`);
                 
             } catch (err) {
                 console.error('Failed to load customers:', err);
@@ -643,18 +671,28 @@
                 opacity: 1,
                 fillOpacity: 0.9
             }).addTo(map);
-
+        
+            // Better popup formatting for your data structure
+            const addressDisplay = customer.address && customer.address !== 'No address provided' 
+                ? `📍 ${customer.address}` 
+                : `📍 ${customer.lat.toFixed(4)}, ${customer.lng.toFixed(4)}`;
+            
             marker.bindPopup(`
-                <div style="font-family: system-ui; padding: 12px;">
-                    <h3 style="margin: 0 0 8px 0; color: #ef4444; font-size: 1.1rem;">${customer.name}</h3>
-                    <p style="margin: 4px 0; color: #475569; font-size: 0.9rem;">
-                        📍 ${customer.address}<br>
-                        ⏰ ${customer.daysInactive} days inactive<br>
-                        📦 Volume: ${customer.volume}
+                <div style="font-family: system-ui; padding: 12px; min-width: 200px;">
+                    <h3 style="margin: 0 0 8px 0; color: #ef4444; font-size: 1.1rem; font-weight: bold;">
+                        ${customer.name}
+                    </h3>
+                    <p style="margin: 4px 0; color: #475569; font-size: 0.9rem; line-height: 1.4;">
+                        ${addressDisplay}<br>
+                        <span style="color: #ef4444; font-weight: 600;">
+                            ⏰ ${customer.daysInactive} days inactive
+                        </span><br>
+                        📦 Volume: ${customer.volume || 'N/A'}<br>
+                        <small style="color: #94a3b8;">ID: ${customer.id}</small>
                     </p>
                 </div>
             `);
-
+        
             customerMarkers[customer.id] = {
                 marker: marker,
                 data: customer,
@@ -858,12 +896,23 @@
                 });
             
             if (sorted.length === 0) {
-                container.innerHTML = '<div style="text-align: center; padding: 30px; color: #94a3b8;"><div style="font-size: 3rem;">✅</div>All done!</div>';
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 30px; color: #94a3b8;">
+                        <div style="font-size: 3rem;">✅</div>
+                        <div>No inactive customers found</div>
+                        <div style="font-size: 0.8rem; margin-top: 10px;">
+                            Check sheet data or filter criteria (>30 days)
+                        </div>
+                    </div>`;
                 return;
             }
             
             container.innerHTML = sorted.map(customer => {
                 const isNearby = customerMarkers[customer.id]?.nearby || false;
+                // Show coordinates if no address
+                const locationText = customer.address && customer.address !== 'No address provided' 
+                    ? customer.address 
+                    : `${customer.lat.toFixed(4)}, ${customer.lng.toFixed(4)}`;
                 
                 return `
                 <div class="customer-item ${isNearby ? 'nearby' : ''}" id="customer-${customer.id}">
@@ -871,9 +920,9 @@
                         <div class="customer-info">
                             <h4>${customer.name}</h4>
                             <div class="customer-meta">
-                                📍 ${customer.address}<br>
+                                📍 ${locationText}<br>
                                 ⏰ ${customer.daysInactive} days inactive<br>
-                                📦 Vol: ${customer.volume}
+                                📦 Vol: ${customer.volume || 'N/A'} | ID: ${customer.id}
                             </div>
                         </div>
                         <div class="distance-badge ${isNearby ? 'reached' : ''}" id="distance-${customer.id}">
@@ -968,6 +1017,7 @@
     </script>
 </body>
 </html>
+
 
 
 
