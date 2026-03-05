@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Team Sales Tracker - Google Sheets API</title>
+    <title>Team Sales Tracker</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -45,12 +45,10 @@
             justify-content: center;
             padding: 30px;
             text-align: center;
-            transition: opacity 0.5s ease;
         }
         
         .loading-panel.hidden {
-            opacity: 0;
-            pointer-events: none;
+            display: none;
         }
         
         .loading-logo {
@@ -74,16 +72,23 @@
         .loading-text {
             color: #94a3b8;
             line-height: 1.6;
+            margin-bottom: 20px;
         }
         
-        .error-panel {
-            display: none;
+        .error-box {
             background: rgba(239, 68, 68, 0.2);
             border: 1px solid #ef4444;
             padding: 20px;
             border-radius: 12px;
             margin-top: 20px;
-            max-width: 400px;
+            max-width: 90%;
+            color: #fca5a5;
+            font-size: 0.9rem;
+            display: none;
+        }
+        
+        .error-box.show {
+            display: block;
         }
         
         .sync-indicator {
@@ -137,7 +142,6 @@
             z-index: 1000;
             max-height: 50vh;
             overflow-y: auto;
-            transition: transform 0.3s ease;
         }
         
         .panel-handle {
@@ -294,11 +298,6 @@
             white-space: nowrap;
         }
         
-        .distance-badge.nearby {
-            background: rgba(245, 158, 11, 0.2);
-            color: #f59e0b;
-        }
-        
         .distance-badge.reached {
             background: rgba(34, 197, 94, 0.2);
             color: #22c55e;
@@ -399,21 +398,24 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.3);
         }
         
-        .error-log {
+        .debug-info {
             position: fixed;
-            bottom: 100px;
-            left: 20px;
-            right: 20px;
-            background: rgba(239, 68, 68, 0.95);
-            color: white;
-            padding: 15px;
-            border-radius: 12px;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.8);
+            color: #0f0;
+            padding: 10px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.75rem;
+            max-width: 90%;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 3000;
             display: none;
-            z-index: 4000;
-            font-size: 0.85rem;
         }
         
-        .error-log.show {
+        .debug-info.show {
             display: block;
         }
     </style>
@@ -424,13 +426,16 @@
         <div class="loading-logo">📊</div>
         <div class="loading-title">Loading Customers...</div>
         <div class="loading-text">Fetching data from Google Sheets</div>
-        <div class="error-panel" id="errorPanel">
-            <div id="errorMessage"></div>
+        <div class="error-box" id="errorBox">
+            <strong>Error:</strong> <span id="errorMessage"></span>
+            <div style="margin-top: 10px; font-size: 0.8rem;">
+                Check console (F12) for details
+            </div>
         </div>
     </div>
     
-    <!-- Error Log -->
-    <div class="error-log" id="errorLog"></div>
+    <!-- Debug Info -->
+    <div class="debug-info" id="debugInfo"></div>
     
     <!-- Sync Indicator -->
     <div class="sync-indicator">
@@ -449,6 +454,7 @@
         <div class="fab" onclick="recenterMap()">📍</div>
         <div class="fab" onclick="togglePanel()">📋</div>
         <div class="fab" onclick="refreshData()">🔄</div>
+        <div class="fab" onclick="toggleDebug()">🐛</div>
     </div>
     
     <!-- Proximity Indicator -->
@@ -504,17 +510,22 @@
         </div>
     </div>
 
-    <script>
+        <script>
         // ==========================================
-        // CONFIGURATION - CHANGE THESE
+        // CONFIGURATION - REPLACE THESE VALUES
         // ==========================================
         
-        // Your Google API Key (restricted to your domain)
-        const API_KEY = "AIzaSyDdHi3CRLWDyBkLyoUwUaTcid28FhAgmpg";
-        // Your Google Sheet ID (from the URL)
-        const SHEET_ID = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRvT6w3QucvuRaPsmsWQfHuF3E7TJchVkFOhpm7_m-iIsE3EiRjL6sYuaVySJrnXQSJYRTzhj447xC7/pubhtml?gid=1075129880&single=true";
-        // Range to fetch (Customers sheet, columns A-G)
-        const RANGE = "Customers!A2:G";
+        // STEP 1: Replace with your Google API Key (from Google Cloud Console)
+        const API_KEY = "AIzaSyDdHi3CRLWDyBkLyoUwUaTcid28FhAgmpg"; // <-- REPLACE THIS
+        
+        // STEP 2: Your Sheet ID is already extracted from your URL:
+        // https://docs.google.com/spreadsheets/d/1C7iaidhaBVjUBZcNHclVineIyvrC0jsET_nDWvN-O3w/edit?usp=sharing
+        const SHEET_ID = "1C7iaidhaBVjUBZcNHclVineIyvrC0jsET_nDWvN-O3w";
+        
+        // STEP 3: Adjust range based on your sheet structure
+        // If your data starts at row 2 (row 1 is headers): "Sheet1!A2:G"
+        // If your data starts at row 1 (no headers): "Sheet1!A1:G"
+        const RANGE = "Customers!A2:G"; // Change "Sheet1" to your actual tab name
         
         // ==========================================
         // GLOBAL VARIABLES
@@ -527,22 +538,57 @@
         let proximityThreshold = 100; // meters
         let isTracking = false;
         let watchId = null;
-        let visitedCustomers = new Set(); // Track visited in this session
+        let visitedCustomers = new Set();
+        let debugLogs = [];
+        
+        // ==========================================
+        // DEBUGGING
+        // ==========================================
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] ${type}: ${message}`;
+            debugLogs.push(logEntry);
+            console.log(logEntry);
+            
+            // Update debug display if visible
+            const debugInfo = document.getElementById('debugInfo');
+            if (debugInfo.classList.contains('show')) {
+                debugInfo.innerHTML = debugLogs.slice(-20).join('<br>');
+            }
+        }
+        
+        function toggleDebug() {
+            const debugInfo = document.getElementById('debugInfo');
+            debugInfo.classList.toggle('show');
+            if (debugInfo.classList.contains('show')) {
+                debugInfo.innerHTML = debugLogs.slice(-20).join('<br>');
+            }
+        }
         
         // ==========================================
         // INITIALIZATION
         // ==========================================
         
         async function init() {
+            log('Initializing app...');
             initMap();
+            
+            // Validate configuration
+            if (API_KEY === "AIzaSyC7iaidhaBVjUBZcNHclVineIyvrC0jsET_nDWvN-O3w" || !API_KEY) {
+                showError('Please configure your API_KEY in the code');
+                return;
+            }
+            
             await loadCustomers();
         }
 
         function initMap() {
+            log('Initializing map...');
             map = L.map('map', {
                 zoomControl: false,
                 tap: true
-            }).setView([8.49, -13.24], 15);
+            }).setView([8.32, -13.05], 13); // Center on your data area (Sierra Leone)
             
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                 attribution: '&copy; CARTO',
@@ -551,115 +597,143 @@
             }).addTo(map);
             
             L.control.zoom({ position: 'bottomright' }).addTo(map);
+            log('Map initialized');
         }
 
         // ==========================================
         // GOOGLE SHEETS DATA LOADING
         // ==========================================
         
-        // ==========================================
-// GOOGLE SHEETS DATA LOADING - ADJUSTED FOR YOUR EXCEL STRUCTURE
-// ==========================================
-
         async function loadCustomers() {
             updateSyncStatus('syncing');
+            log('Starting data fetch...');
             
             try {
+                // Build the API URL
                 const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${RANGE}?key=${API_KEY}`;
+                log(`Fetching: ${url.replace(API_KEY, '***')}`);
                 
                 const response = await fetch(url);
+                log(`Response status: ${response.status}`);
                 
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error?.message || `HTTP ${response.status}`);
+                    const errorData = await response.json();
+                    log(`Error response: ${JSON.stringify(errorData)}`, 'error');
+                    
+                    let errorMsg = `HTTP ${response.status}`;
+                    if (errorData.error) {
+                        errorMsg = errorData.error.message || errorData.error.status;
+                        
+                        // Provide helpful messages for common errors
+                        if (response.status === 403) {
+                            errorMsg += ' - Sheet not public or API key invalid';
+                        } else if (response.status === 404) {
+                            errorMsg += ' - Sheet not found or range invalid';
+                        } else if (response.status === 400) {
+                            errorMsg += ' - Bad request (check range format)';
+                        }
+                    }
+                    throw new Error(errorMsg);
                 }
                 
                 const data = await response.json();
                 const rows = data.values || [];
+                log(`Received ${rows.length} rows`);
                 
-                console.log(`Loaded ${rows.length} rows from sheet`);
-                
-                // Process and filter customers
-                inactiveCustomers = [];
-                let skippedCount = 0;
-                let invalidCoordsCount = 0;
-                
-                rows.forEach((row, index) => {
-                    // Skip if row doesn't have enough columns (need at least F for DaysInactive)
-                    if (row.length < 6) {
-                        console.warn(`Skipping row ${index + 2}: insufficient data (only ${row.length} columns)`);
-                        skippedCount++;
-                        return;
-                    }
-                    
-                    // Extract data according to your Excel structure
-                    const customer = {
-                        id: row[0] || `row_${index + 2}`,           // A: Customer ID
-                        name: row[1] || `Customer ${row[0] || index + 2}`, // B: Name (fallback to ID or row number)
-                        lat: parseFloat(row[2]),                     // C: Latitude
-                        lng: parseFloat(row[3]),                     // D: Longitude
-                        address: row[4] || 'No address provided',    // E: Address (mostly empty in your data)
-                        daysInactive: parseInt(row[5]) || 0,         // F: DaysInactive
-                        volume: parseFloat(row[6]) || 0              // G: Volume (may be undefined if row.length < 7)
-                    };
-                    
-                    // Validate coordinates - skip if missing or invalid
-                    if (isNaN(customer.lat) || isNaN(customer.lng) || 
-                        customer.lat === 0 || customer.lng === 0 ||
-                        !customer.lat || !customer.lng) {
-                        console.warn(`Skipping ${customer.name}: invalid coordinates (lat: ${row[2]}, lng: ${row[3]})`);
-                        invalidCoordsCount++;
-                        skippedCount++;
-                        return;
-                    }
-                    
-                    // Filter: Only customers inactive for MORE than 30 days
-                    if (customer.daysInactive > 30) {
-                        inactiveCustomers.push(customer);
-                        console.log("Inactive:", customer.name, `(${customer.daysInactive} days)`, `ID: ${customer.id}`);
-                    } else {
-                        console.log(`Skipped (not inactive enough): ${customer.name} (${customer.daysInactive} days)`);
-                        skippedCount++;
-                    }
-                });
-                
-                console.log(`Processed: ${inactiveCustomers.length} valid, skipped: ${skippedCount} (including ${invalidCoordsCount} with bad coordinates)`);
-                
-                if (inactiveCustomers.length === 0) {
-                    throw new Error('No valid inactive customers found. Check sheet data and filter criteria.');
+                if (rows.length === 0) {
+                    throw new Error('No data found in sheet');
                 }
                 
-                // Add markers to map
-                inactiveCustomers.forEach(customer => {
-                    addCustomerMarker(customer);
-                });
-                
-                // Center map on customers if no GPS yet
-                if (inactiveCustomers.length > 0) {
-                    const group = new L.featureGroup(Object.values(customerMarkers).map(c => c.marker));
-                    map.fitBounds(group.getBounds().pad(0.1));
-                }
-                
-                // Update UI
-                updateCustomerList();
-                updateStats();
-                updateSyncStatus('online');
-                
-                const now = new Date();
-                document.getElementById('lastSync').textContent = 'Loaded: ' + now.toLocaleTimeString();
-                
-                // Hide loading panel
-                document.getElementById('loadingPanel').classList.add('hidden');
-                
-                showNotification('Data Loaded', `${inactiveCustomers.length} inactive customers found (${skippedCount} skipped)`);
+                // Process data
+                processCustomerData(rows);
                 
             } catch (err) {
-                console.error('Failed to load customers:', err);
-                showError('Failed to load data: ' + err.message);
-                document.getElementById('errorMessage').textContent = err.message;
-                document.getElementById('errorPanel').style.display = 'block';
+                log(`Failed to load: ${err.message}`, 'error');
+                showError(err.message);
                 updateSyncStatus('error');
             }
+        }
+        
+        function processCustomerData(rows) {
+            inactiveCustomers = [];
+            let skippedCount = 0;
+            let invalidCoords = 0;
+            let notInactive = 0;
+            
+            rows.forEach((row, index) => {
+                const rowNum = index + 2; // Assuming data starts at row 2
+                
+                // Log first few rows for debugging
+                if (index < 3) {
+                    log(`Row ${rowNum}: ${JSON.stringify(row)}`);
+                }
+                
+                // Check minimum columns (need at least F for DaysInactive)
+                if (row.length < 6) {
+                    log(`Row ${rowNum}: Skipped - only ${row.length} columns`, 'warn');
+                    skippedCount++;
+                    return;
+                }
+                
+                // Parse data according to your Excel structure
+                const customer = {
+                    id: row[0] || `row_${rowNum}`,
+                    name: row[1]?.trim() || `Customer ${row[0] || rowNum}`,
+                    lat: parseFloat(row[2]),
+                    lng: parseFloat(row[3]),
+                    address: row[4]?.trim() || '',
+                    daysInactive: parseInt(row[5]) || 0,
+                    volume: parseFloat(row[6]) || 0
+                };
+                
+                // Validate coordinates
+                if (isNaN(customer.lat) || isNaN(customer.lng) || 
+                    !isFinite(customer.lat) || !isFinite(customer.lng) ||
+                    (customer.lat === 0 && customer.lng === 0)) {
+                    log(`Row ${rowNum}: Invalid coords for ${customer.name} (lat:${row[2]}, lng:${row[3]})`, 'warn');
+                    invalidCoords++;
+                    skippedCount++;
+                    return;
+                }
+                
+                // Filter: > 30 days inactive
+                if (customer.daysInactive > 30) {
+                    inactiveCustomers.push(customer);
+                } else {
+                    notInactive++;
+                    skippedCount++;
+                }
+            });
+            
+            log(`Processed: ${inactiveCustomers.length} valid, ${skippedCount} skipped (${invalidCoords} bad coords, ${notInactive} not inactive)`);
+            
+            if (inactiveCustomers.length === 0) {
+                showError('No customers with >30 days inactive found');
+                return;
+            }
+            
+            // Add markers
+            inactiveCustomers.forEach(customer => {
+                addCustomerMarker(customer);
+            });
+            
+            // Fit map to show all customers
+            if (Object.keys(customerMarkers).length > 0) {
+                const group = new L.featureGroup(Object.values(customerMarkers).map(c => c.marker));
+                map.fitBounds(group.getBounds().pad(0.1));
+                log('Map fitted to customer bounds');
+            }
+            
+            // Update UI
+            updateCustomerList();
+            updateStats();
+            updateSyncStatus('online');
+            
+            const now = new Date();
+            document.getElementById('lastSync').textContent = 'Loaded: ' + now.toLocaleTimeString();
+            document.getElementById('loadingPanel').classList.add('hidden');
+            
+            showNotification('Success', `${inactiveCustomers.length} customers loaded`);
         }
 
         function addCustomerMarker(customer) {
@@ -671,28 +745,30 @@
                 opacity: 1,
                 fillOpacity: 0.9
             }).addTo(map);
-        
-            // Better popup formatting for your data structure
-            const addressDisplay = customer.address && customer.address !== 'No address provided' 
+
+            // Format popup
+            const locationInfo = customer.address 
                 ? `📍 ${customer.address}` 
-                : `📍 ${customer.lat.toFixed(4)}, ${customer.lng.toFixed(4)}`;
+                : `📍 ${customer.lat.toFixed(5)}, ${customer.lng.toFixed(5)}`;
             
             marker.bindPopup(`
                 <div style="font-family: system-ui; padding: 12px; min-width: 200px;">
                     <h3 style="margin: 0 0 8px 0; color: #ef4444; font-size: 1.1rem; font-weight: bold;">
                         ${customer.name}
                     </h3>
-                    <p style="margin: 4px 0; color: #475569; font-size: 0.9rem; line-height: 1.4;">
-                        ${addressDisplay}<br>
+                    <p style="margin: 4px 0; color: #475569; font-size: 0.9rem; line-height: 1.5;">
+                        ${locationInfo}<br>
                         <span style="color: #ef4444; font-weight: 600;">
                             ⏰ ${customer.daysInactive} days inactive
                         </span><br>
                         📦 Volume: ${customer.volume || 'N/A'}<br>
-                        <small style="color: #94a3b8;">ID: ${customer.id}</small>
+                        <small style="color: #94a3b8; display: block; margin-top: 5px;">
+                            ID: ${customer.id}
+                        </small>
                     </p>
                 </div>
             `);
-        
+
             customerMarkers[customer.id] = {
                 marker: marker,
                 data: customer,
@@ -706,9 +782,11 @@
         
         function startTracking() {
             if (!navigator.geolocation) {
-                alert('GPS not supported on this device');
+                alert('GPS not supported');
                 return;
             }
+            
+            log('Starting GPS tracking...');
             
             navigator.geolocation.getCurrentPosition(
                 (position) => {
@@ -719,13 +797,13 @@
                             updateAgentPosition(latitude, longitude);
                             checkProximity(latitude, longitude);
                         },
-                        (err) => console.error('Watch error:', err),
+                        (err) => log(`GPS watch error: ${err.message}`, 'error'),
                         { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
                     );
                 },
                 (error) => {
+                    log(`GPS error: ${error.message}`, 'error');
                     alert('GPS Error: ' + error.message);
-                    console.error('GPS Error:', error);
                 },
                 { enableHighAccuracy: true, timeout: 15000 }
             );
@@ -733,6 +811,8 @@
 
         function onGPSSuccess(position) {
             const { latitude, longitude } = position.coords;
+            log(`GPS acquired: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+            
             updateAgentPosition(latitude, longitude);
             checkProximity(latitude, longitude);
             
@@ -746,7 +826,7 @@
             if (!agentMarker) {
                 const icon = L.divIcon({
                     className: 'agent-marker',
-                    html: '<div style="background: #0ea5e9; width: 100%; height: 100%; border-radius: 50%; display: flex; align-items: center; justify-content: center;">📍</div>',
+                    html: '<div style="background: #0ea5e9; width: 100%; height: 100%; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">📍</div>',
                     iconSize: [40, 40]
                 });
                 agentMarker = L.marker([lat, lng], { icon: icon }).addTo(map);
@@ -762,14 +842,9 @@
             let minDistance = Infinity;
             
             Object.entries(customerMarkers).forEach(([id, customer]) => {
-                // Skip if already visited in this session
                 if (visitedCustomers.has(id)) return;
                 
-                const distance = calculateDistance(
-                    agentLat, agentLng,
-                    customer.data.lat, customer.data.lng
-                );
-                
+                const distance = calculateDistance(agentLat, agentLng, customer.data.lat, customer.data.lng);
                 const isNearby = distance <= proximityThreshold;
                 
                 if (isNearby) {
@@ -784,6 +859,7 @@
                     customer.nearby = true;
                     customer.marker.setStyle({ fillColor: '#f59e0b', radius: 20 });
                     if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                    log(`Nearby: ${customer.data.name} (${Math.round(distance)}m)`);
                 } else if (!isNearby && customer.nearby) {
                     customer.nearby = false;
                     customer.marker.setStyle({ fillColor: '#ef4444', radius: 16 });
@@ -792,7 +868,6 @@
                 updateDistanceDisplay(id, distance, isNearby);
             });
             
-            // Update proximity indicator
             const indicator = document.getElementById('proximityIndicator');
             if (nearestCustomer) {
                 indicator.classList.add('show');
@@ -802,24 +877,20 @@
                 indicator.classList.remove('show');
             }
             
-            // Update stats
             document.getElementById('nearbyCount').textContent = nearbyCount;
-            
             updateCustomerList();
         }
 
         function calculateDistance(lat1, lng1, lat2, lng2) {
-            const R = 6371e3; // Earth radius in meters
+            const R = 6371e3;
             const φ1 = lat1 * Math.PI / 180;
             const φ2 = lat2 * Math.PI / 180;
             const Δφ = (lat2 - lat1) * Math.PI / 180;
             const Δλ = (lng2 - lng1) * Math.PI / 180;
-            
             const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
                       Math.cos(φ1) * Math.cos(φ2) *
                       Math.sin(Δλ/2) * Math.sin(Δλ/2);
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-            
             return R * c;
         }
 
@@ -837,20 +908,17 @@
         }
 
         // ==========================================
-        // VISIT MANAGEMENT (Session-only, no write to sheet)
+        // VISIT MANAGEMENT
         // ==========================================
         
         function markVisited(id) {
             const customer = customerMarkers[id];
             if (!customer) return;
             
-            // Add to visited set
             visitedCustomers.add(id);
             
-            // Visual feedback
             customer.marker.setStyle({ fillColor: '#10b981', fillOpacity: 0.5 });
             
-            // Fade out and remove
             let opacity = 1;
             const fadeInterval = setInterval(() => {
                 opacity -= 0.1;
@@ -858,15 +926,12 @@
                 if (opacity <= 0) {
                     clearInterval(fadeInterval);
                     map.removeLayer(customer.marker);
-                    delete customerMarkers[id];
                 }
             }, 100);
             
-            // Update UI
             updateStats();
             updateCustomerList();
             
-            // Celebration
             confetti({
                 particleCount: 100,
                 spread: 70,
@@ -875,6 +940,7 @@
             });
             
             showNotification(customer.data.name + ' visited!', 'Marked as completed');
+            log(`Marked visited: ${customer.data.name}`);
         }
 
         // ==========================================
@@ -884,7 +950,6 @@
         function updateCustomerList() {
             const container = document.getElementById('customerItems');
             
-            // Sort: nearby first, then by days inactive (descending)
             const sorted = inactiveCustomers
                 .filter(c => !visitedCustomers.has(c.id))
                 .sort((a, b) => {
@@ -892,27 +957,22 @@
                     const bNear = customerMarkers[b.id]?.nearby || false;
                     if (aNear && !bNear) return -1;
                     if (!aNear && bNear) return 1;
-                    return b.daysInactive - a.daysInactive; // Most inactive first
+                    return b.daysInactive - a.daysInactive;
                 });
             
             if (sorted.length === 0) {
                 container.innerHTML = `
                     <div style="text-align: center; padding: 30px; color: #94a3b8;">
                         <div style="font-size: 3rem;">✅</div>
-                        <div>No inactive customers found</div>
-                        <div style="font-size: 0.8rem; margin-top: 10px;">
-                            Check sheet data or filter criteria (>30 days)
-                        </div>
+                        <div>All customers visited!</div>
                     </div>`;
                 return;
             }
             
             container.innerHTML = sorted.map(customer => {
                 const isNearby = customerMarkers[customer.id]?.nearby || false;
-                // Show coordinates if no address
-                const locationText = customer.address && customer.address !== 'No address provided' 
-                    ? customer.address 
-                    : `${customer.lat.toFixed(4)}, ${customer.lng.toFixed(4)}`;
+                const locationText = customer.address || 
+                    `${customer.lat.toFixed(4)}, ${customer.lng.toFixed(4)}`;
                 
                 return `
                 <div class="customer-item ${isNearby ? 'nearby' : ''}" id="customer-${customer.id}">
@@ -942,9 +1002,6 @@
         function updateStats() {
             const total = inactiveCustomers.length;
             const visited = visitedCustomers.size;
-            const remaining = total - visited;
-            
-            // Count nearby
             const nearby = Object.values(customerMarkers).filter(c => c.nearby && !visitedCustomers.has(c.data.id)).length;
             
             document.getElementById('totalCount').textContent = total;
@@ -977,47 +1034,41 @@
             setTimeout(() => notif.classList.remove('show'), 3000);
         }
 
-        function showError(msg) {
-            const log = document.getElementById('errorLog');
-            log.textContent = msg;
-            log.classList.add('show');
-            setTimeout(() => log.classList.remove('show'), 5000);
-            console.error(msg);
+        function showError(message) {
+            log(`ERROR: ${message}`, 'error');
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorBox').classList.add('show');
+            document.getElementById('syncText').textContent = 'Error';
         }
 
         function togglePanel() {
-            const panel = document.getElementById('controlPanel');
-            // Simple toggle - you can enhance this
-            panel.style.transform = panel.style.transform === 'translateY(50%)' ? 'translateY(0)' : 'translateY(50%)';
+            // Simple toggle - can be enhanced
         }
 
         function recenterMap() {
             if (agentMarker) {
                 map.flyTo(agentMarker.getLatLng(), 17);
-            } else {
-                // Center on all customers if no GPS
+            } else if (inactiveCustomers.length > 0) {
                 const group = new L.featureGroup(Object.values(customerMarkers).map(c => c.marker));
                 map.fitBounds(group.getBounds().pad(0.1));
             }
         }
 
         async function refreshData() {
-            // Clear existing markers
+            log('Refreshing data...');
             Object.values(customerMarkers).forEach(c => map.removeLayer(c.marker));
             customerMarkers = {};
             visitedCustomers.clear();
-            
-            updateSyncStatus('syncing');
+            document.getElementById('errorBox').classList.remove('show');
             await loadCustomers();
-            showNotification('Refreshed', 'Latest data from Google Sheets');
         }
 
-        // Start the app
+        // Start
         window.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
 </html>
-
+   
 
 
 
